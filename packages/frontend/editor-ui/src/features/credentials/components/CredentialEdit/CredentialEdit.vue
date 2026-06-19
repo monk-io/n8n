@@ -1632,7 +1632,7 @@ const { width } = useElementSize(credNameRef);
 						"
 						:variant="hasUnsavedChanges || isTesting ? 'solid' : 'subtle'"
 						:is-saving="isSaving || isTesting"
-						:saved="!isNewCredential && !hasUnsavedChanges && !isTesting"
+						:saved="!isNewCredential && isSaved && !hasUnsavedChanges && !isTesting"
 						:saving-label="
 							isTesting
 								? i18n.baseText('credentialEdit.credentialEdit.testing')

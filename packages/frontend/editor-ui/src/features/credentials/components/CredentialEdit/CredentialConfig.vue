@@ -477,7 +477,9 @@ watch(showOAuthSuccessBanner, (newValue, oldValue) => {
 					@click="$emit('oauth')"
 				>
 					<template v-if="isGoogleOAuthType" #button>
-						<GoogleAuthButton @click="$emit('oauth')" />
+						<div data-test-id="quick-connect-button">
+							<GoogleAuthButton @click="$emit('oauth')" />
+						</div>
 					</template>
 					<template v-else #button>
 						<QuickConnectButton
