@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import ts from 'typescript';
 
 // Guards the DI-less bundle: the `@n8n/backend-network/transport` subpath
 // must stay free of DI / config / backend-common at runtime, so DI-less callers
@@ -19,33 +20,54 @@ interface ImportRef {
 	typeOnly: boolean;
 }
 
-/** Extract `import`/`export ... from` specifiers from a source file. */
-function parseImports(source: string): ImportRef[] {
+/**
+ * Extract module specifiers from a source file via the TypeScript AST. This
+ * covers static `import`/`export ... from`, bare side-effect imports, and the
+ * runtime forms a regex would miss: dynamic `import('<s>')` and `require('<s>')`.
+ */
+function parseImports(fileName: string, source: string): ImportRef[] {
 	const refs: ImportRef[] = [];
+	const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
 
-	// `import ... from '<s>'` / `export ... from '<s>'`. Requiring `from` (and
-	// disallowing `;` before it) avoids matching value expressions like
-	// `?? 'env'` inside a function body.
-	const fromRe = /(?:^|\n)\s*(import|export)(\s+type)?\b[^;]*?\bfrom\s*['"]([^'"]+)['"]/g;
-	let match: RegExpExecArray | null;
-	while ((match = fromRe.exec(source)) !== null) {
-		const [, , typeKeyword, specifier] = match;
-		refs.push({ specifier, typeOnly: Boolean(typeKeyword) });
-	}
+	const visit = (node: ts.Node): void => {
+		// `import ... from '<s>'` / `import '<s>'`
+		if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+			refs.push({
+				specifier: node.moduleSpecifier.text,
+				typeOnly: node.importClause?.isTypeOnly ?? false,
+			});
+		}
+		// `export ... from '<s>'` (re-exports; bare `export {}` has no specifier)
+		else if (
+			ts.isExportDeclaration(node) &&
+			node.moduleSpecifier &&
+			ts.isStringLiteral(node.moduleSpecifier)
+		) {
+			refs.push({ specifier: node.moduleSpecifier.text, typeOnly: node.isTypeOnly });
+		}
+		// Dynamic `import('<s>')` and `require('<s>')` — always runtime.
+		else if (ts.isCallExpression(node)) {
+			const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+			const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+			const [arg] = node.arguments;
+			if ((isDynamicImport || isRequire) && arg && ts.isStringLiteral(arg)) {
+				refs.push({ specifier: arg.text, typeOnly: false });
+			}
+		}
 
-	// Bare side-effect imports: `import '<s>';` (always runtime).
-	const bareRe = /(?:^|\n)\s*import\s+['"]([^'"]+)['"]/g;
-	while ((match = bareRe.exec(source)) !== null) {
-		refs.push({ specifier: match[1], typeOnly: false });
-	}
+		ts.forEachChild(node, visit);
+	};
 
+	visit(sourceFile);
 	return refs;
 }
 
 function resolveRelative(fromFile: string, specifier: string): string | undefined {
-	const base = resolve(dirname(fromFile), specifier);
-	const candidates = [base, `${base}.ts`, resolve(base, 'index.ts')];
-	return candidates.find((candidate) => existsSync(candidate) && candidate.endsWith('.ts'));
+	// Strip a NodeNext `.js`/`.jsx` extension back to its TS source.
+	const asTs = specifier.replace(/\.jsx?$/, '');
+	const base = resolve(dirname(fromFile), asTs);
+	const candidates = [base, `${base}.ts`, `${base}.tsx`, resolve(base, 'index.ts')];
+	return candidates.find((candidate) => existsSync(candidate) && /\.tsx?$/.test(candidate));
 }
 
 /** All bare (non-relative) specifiers reachable at runtime from the entry file. */
@@ -58,7 +80,7 @@ function collectRuntimeExternals(entry: string): Set<string> {
 		visited.add(file);
 
 		const source = readFileSync(file, 'utf8');
-		for (const { specifier, typeOnly } of parseImports(source)) {
+		for (const { specifier, typeOnly } of parseImports(file, source)) {
 			if (typeOnly) continue; // erased at compile time — no runtime dependency
 			if (specifier.startsWith('.')) {
 				const resolved = resolveRelative(file, specifier);
@@ -96,5 +118,39 @@ describe('@n8n/backend-network/transport subpath purity', () => {
 		const externals = collectRuntimeExternals(ENTRY);
 
 		expect([...externals].sort()).toEqual(['n8n-workflow', 'undici']);
+	});
+});
+
+describe('transport subpath purity — import parser', () => {
+	const parse = (source: string) => parseImports('module.ts', source);
+
+	it('treats `import type` / `export type` as erased', () => {
+		expect(parse("import type { Foo } from './foo';")).toEqual([
+			{ specifier: './foo', typeOnly: true },
+		]);
+		expect(parse("export type { Foo } from './foo';")).toEqual([
+			{ specifier: './foo', typeOnly: true },
+		]);
+	});
+
+	it('treats static value imports and re-exports as runtime', () => {
+		expect(parse("import { foo } from './foo';")).toEqual([
+			{ specifier: './foo', typeOnly: false },
+		]);
+		expect(parse("export { foo } from './foo';")).toEqual([
+			{ specifier: './foo', typeOnly: false },
+		]);
+		expect(parse("import './bare';")).toEqual([{ specifier: './bare', typeOnly: false }]);
+	});
+
+	// The reason for parsing the AST instead of regex: dynamic forms are runtime
+	// dependencies a regex over import/export statements would silently miss.
+	it('catches dynamic import() and require() as runtime', () => {
+		expect(parse("async function f() { await import('@n8n/di'); }")).toEqual([
+			{ specifier: '@n8n/di', typeOnly: false },
+		]);
+		expect(parse("const di = require('@n8n/di');")).toEqual([
+			{ specifier: '@n8n/di', typeOnly: false },
+		]);
 	});
 });
