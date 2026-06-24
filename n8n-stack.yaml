@@ -1,0 +1,534 @@
+namespace: n8n
+
+stack-postgres:
+  defines: runnable
+  inherits: postgresql/db
+
+  metadata:
+    name: n8n Stack PostgreSQL
+    description: |
+      Private PostgreSQL datastore for the production-oriented n8n stack.
+      Credentials are read from plain Monk secret names and the database service
+      is not published.
+    tags: n8n, postgresql, standalone, production
+    website: https://www.postgresql.org/
+    source: https://github.com/postgres/postgres
+    publisher: monk.io
+    private: false
+
+  permitted-secrets:
+    n8n-postgres-password: true
+
+  variables:
+    db_name:
+      type: string
+      env: POSTGRES_DB
+      value: n8n
+      description: PostgreSQL database name for the n8n production stack.
+    db_user:
+      type: string
+      env: POSTGRES_USER
+      value: n8n
+      description: PostgreSQL user for the n8n production stack.
+    db_pass:
+      type: string
+      env: POSTGRES_PASSWORD
+      value: <- secret("n8n-postgres-password")
+      description: Sensitive PostgreSQL password. Set plain Monk secret name n8n-postgres-password before inheriting or deploying.
+
+  services:
+    postgres:
+      container: postgres
+      port: 5432
+      protocol: tcp
+      publish: false
+      description: Private PostgreSQL TCP endpoint for the n8n production stack.
+
+stack-redis:
+  defines: runnable
+  inherits: redis/redis
+
+  metadata:
+    name: n8n Stack Redis
+    description: |
+      Private Redis queue backend for the production-oriented n8n stack.
+      Redis is not published and its password is read from a plain Monk secret.
+    tags: n8n, redis, queue, standalone, production
+    website: https://redis.io/
+    source: https://github.com/redis/redis
+    publisher: monk.io
+    private: false
+
+  permitted-secrets:
+    n8n-redis-password: true
+
+  variables:
+    redis_empty_password:
+      type: string
+      env: ALLOW_EMPTY_PASSWORD
+      value: "no"
+      description: Disables empty Redis password for the production-oriented stack.
+    redis-password:
+      type: string
+      env: REDIS_PASSWORD
+      value: <- secret("n8n-redis-password")
+      description: Sensitive Redis password. Set plain Monk secret name n8n-redis-password before inheriting or deploying.
+
+stack-main:
+  defines: runnable
+  inherits: n8n/base
+
+  metadata:
+    name: n8n Standalone Main
+    description: |
+      Production-oriented n8n main instance wired to private PostgreSQL and
+      Redis services. Sensitive values are read from plain Monk secret names;
+      no service is published directly by this runnable.
+    tags: n8n, workflow-automation, standalone, production
+    website: https://n8n.io/
+    source: https://github.com/n8n-io/n8n
+    publisher: monk.io
+    private: false
+
+  permitted-secrets:
+    n8n-encryption-key: true
+    n8n-user-management-jwt-secret: true
+    n8n-postgres-password: true
+    n8n-redis-password: true
+
+  variables:
+    n8n-host:
+      type: string
+      env: N8N_HOST
+      value: n8n.example.com
+      description: Production public hostname used by n8n.
+    n8n-protocol:
+      type: string
+      env: N8N_PROTOCOL
+      value: https
+      description: Production public protocol used by n8n.
+    webhook-url:
+      type: string
+      env: WEBHOOK_URL
+      value: https://n8n.example.com/
+      description: Production webhook base URL; inherit with the real ingress hostname.
+    editor-base-url:
+      type: string
+      env: N8N_EDITOR_BASE_URL
+      value: https://n8n.example.com/
+      description: Production editor base URL; inherit with the real ingress hostname.
+    secure-cookie:
+      type: string
+      env: N8N_SECURE_COOKIE
+      value: "true"
+      description: Enables secure cookies for HTTPS ingress.
+    data-volume-name:
+      type: string
+      value: n8n-stack-main-data
+      description: Monk volume subdirectory for production main n8n data.
+    encryption-key:
+      type: string
+      env: N8N_ENCRYPTION_KEY
+      value: <- secret("n8n-encryption-key")
+      description: Sensitive n8n credential encryption key. Set plain Monk secret name n8n-encryption-key before inheriting or deploying.
+    user-management-jwt-secret:
+      type: string
+      env: N8N_USER_MANAGEMENT_JWT_SECRET
+      value: <- secret("n8n-user-management-jwt-secret")
+      description: Sensitive n8n user-management JWT secret. Set plain Monk secret name n8n-user-management-jwt-secret before inheriting or deploying.
+    db-type:
+      type: string
+      env: DB_TYPE
+      value: postgresdb
+      description: Enables PostgreSQL persistence.
+    db-postgres-host:
+      type: string
+      env: DB_POSTGRESDB_HOST
+      value: <- connection-hostname("postgres")
+      description: PostgreSQL host read from the Monk connection.
+    db-postgres-port:
+      type: int
+      env: DB_POSTGRESDB_PORT
+      value: <- connection-port("postgres")
+      description: PostgreSQL port read from the Monk connection.
+    db-postgres-password:
+      type: string
+      env: DB_POSTGRESDB_PASSWORD
+      value: <- secret("n8n-postgres-password")
+      description: Sensitive PostgreSQL password. Set plain Monk secret name n8n-postgres-password before inheriting or deploying.
+    executions-mode:
+      type: string
+      env: EXECUTIONS_MODE
+      value: queue
+      description: Enables queue execution mode backed by Redis.
+    redis-host:
+      type: string
+      env: QUEUE_BULL_REDIS_HOST
+      value: <- connection-hostname("redis")
+      description: Redis host read from the Monk connection.
+    redis-port:
+      type: int
+      env: QUEUE_BULL_REDIS_PORT
+      value: <- connection-port("redis")
+      description: Redis port read from the Monk connection.
+    redis-password:
+      type: string
+      env: QUEUE_BULL_REDIS_PASSWORD
+      value: <- secret("n8n-redis-password")
+      description: Sensitive Redis password. Set plain Monk secret name n8n-redis-password before inheriting or deploying.
+    queue-health-check-active:
+      type: string
+      env: QUEUE_HEALTH_CHECK_ACTIVE
+      value: "true"
+      description: Enables n8n queue health endpoints.
+
+  services:
+    http:
+      container: n8n
+      port: <- $n8n-port
+      protocol: tcp
+      publish: false
+      description: Private n8n HTTP service intended for production ingress.
+
+  connections:
+    postgres:
+      runnable: n8n/stack-postgres
+      service: postgres
+      description: Private PostgreSQL service connected to n8n.
+    redis:
+      runnable: n8n/stack-redis
+      service: redis-svc
+      description: Private Redis service connected to n8n.
+
+  depends:
+    wait-for:
+      runnables:
+        - n8n/stack-postgres
+        - n8n/stack-redis
+      timeout: 180
+
+stack-worker:
+  defines: runnable
+  inherits: n8n/stack-main
+
+  metadata:
+    name: n8n Standalone Worker
+    description: |
+      Production-oriented n8n worker for queue execution mode. It shares the
+      same private PostgreSQL, Redis, and sensitive secret-backed configuration
+      as the main n8n instance and exposes no public service.
+    tags: n8n, workflow-automation, worker, queue, standalone, production
+    website: https://n8n.io/
+    source: https://github.com/n8n-io/n8n
+    publisher: monk.io
+    private: false
+
+  variables:
+    n8n-image-tag:
+      type: string
+      value: latest
+      description: Public ghcr.io/n8n-io/n8n image tag to run.
+    n8n-port:
+      type: int
+      env: N8N_PORT
+      value: 5678
+      description: HTTP port n8n worker health listens on inside the container.
+    user-folder:
+      type: string
+      env: N8N_USER_FOLDER
+      value: /home/node/.n8n
+      description: Directory where n8n worker stores runtime files and local settings.
+    data-volume-name:
+      type: string
+      value: n8n-stack-worker-data
+      description: Monk volume subdirectory for production worker n8n data.
+
+  containers:
+    n8n:
+      image: ghcr.io/n8n-io/n8n
+      image-tag: <- $n8n-image-tag
+      restart: unless-stopped
+      bash: n8n worker
+      paths:
+        - <- `${volume-path}/${data-volume-name}:${user-folder}`
+
+  services:
+    http:
+      container: n8n
+      port: <- $n8n-port
+      protocol: tcp
+      publish: false
+      description: Private n8n worker health service.
+
+stack:
+  defines: process-group
+
+  metadata:
+    name: n8n Standalone Stack
+    description: |
+      Production-oriented standalone n8n stack with PostgreSQL persistence,
+      Redis-backed queue mode, and a worker. Sensitive values are read from
+      plain Monk secret names and no services are published directly.
+    tags: n8n, workflow-automation, postgresql, redis, queue, standalone, production
+    website: https://n8n.io/
+    source: https://github.com/n8n-io/n8n
+    publisher: monk.io
+    private: false
+
+  runnable-list:
+    - n8n/stack-postgres
+    - n8n/stack-redis
+    - n8n/stack-main
+    - n8n/stack-worker
+
+stack-local-postgres:
+  defines: runnable
+  inherits: postgresql/db
+
+  metadata:
+    name: n8n Local Stack PostgreSQL
+    description: |
+      Private PostgreSQL datastore for the local standalone verification
+      flavor. It is intentionally private on the Monk network.
+    tags: n8n, postgresql, standalone, local
+    website: https://www.postgresql.org/
+    source: https://github.com/postgres/postgres
+    publisher: monk.io
+    private: false
+
+  variables:
+    db_name:
+      type: string
+      env: POSTGRES_DB
+      value: n8n
+      description: PostgreSQL database name for the local stack.
+    db_user:
+      type: string
+      env: POSTGRES_USER
+      value: n8n
+      description: PostgreSQL user for the local stack.
+    db_pass:
+      type: string
+      env: POSTGRES_PASSWORD
+      value: n8n-stack-local
+      description: Sensitive local-only PostgreSQL password for local verification.
+
+  services:
+    postgres:
+      container: postgres
+      port: 5432
+      protocol: tcp
+      publish: false
+      description: Private PostgreSQL TCP endpoint for the local n8n stack.
+
+stack-local-redis:
+  defines: runnable
+  inherits: redis/redis
+
+  metadata:
+    name: n8n Local Stack Redis
+    description: |
+      Private Redis queue backend for the local standalone verification flavor.
+      It stays private on the Monk network.
+    tags: n8n, redis, queue, standalone, local
+    website: https://redis.io/
+    source: https://github.com/redis/redis
+    publisher: monk.io
+    private: false
+
+  variables:
+    redis_empty_password:
+      type: string
+      env: ALLOW_EMPTY_PASSWORD
+      value: "yes"
+      description: Allows empty Redis password only for local stack verification.
+
+stack-local-main:
+  defines: runnable
+  inherits: n8n/base
+
+  metadata:
+    name: n8n Standalone Local Main
+    description: |
+      Local verification flavor for the standalone n8n stack. It wires private
+      PostgreSQL and Redis services, enables queue mode, and publishes only the
+      n8n HTTP endpoint on a non-privileged host port for external checks.
+    tags: n8n, workflow-automation, postgresql, redis, standalone, local
+    website: https://n8n.io/
+    source: https://github.com/n8n-io/n8n
+    publisher: monk.io
+    private: false
+
+  variables:
+    n8n-host:
+      type: string
+      env: N8N_HOST
+      value: localhost
+      description: Local hostname used by the local stack.
+    webhook-url:
+      type: string
+      env: WEBHOOK_URL
+      value: http://localhost:8568/
+      description: Local webhook base URL for the standalone verification stack.
+    editor-base-url:
+      type: string
+      env: N8N_EDITOR_BASE_URL
+      value: http://localhost:8568/
+      description: Local editor base URL for the standalone verification stack.
+    data-volume-name:
+      type: string
+      value: n8n-stack-local-main-data
+      description: Monk volume subdirectory for local main n8n data.
+    encryption-key:
+      type: string
+      env: N8N_ENCRYPTION_KEY
+      value: n8n-stack-local-encryption-key
+      description: Sensitive local-only encryption key for standalone verification.
+    user-management-jwt-secret:
+      type: string
+      env: N8N_USER_MANAGEMENT_JWT_SECRET
+      value: n8n-stack-local-jwt-secret
+      description: Sensitive local-only JWT secret for standalone verification.
+    db-type:
+      type: string
+      env: DB_TYPE
+      value: postgresdb
+      description: Enables PostgreSQL persistence for local stack verification.
+    db-postgres-host:
+      type: string
+      env: DB_POSTGRESDB_HOST
+      value: <- connection-hostname("postgres")
+      description: PostgreSQL host read from the Monk connection.
+    db-postgres-port:
+      type: int
+      env: DB_POSTGRESDB_PORT
+      value: <- connection-port("postgres")
+      description: PostgreSQL port read from the Monk connection.
+    db-postgres-password:
+      type: string
+      env: DB_POSTGRESDB_PASSWORD
+      value: n8n-stack-local
+      description: Sensitive local-only PostgreSQL password for standalone verification.
+    executions-mode:
+      type: string
+      env: EXECUTIONS_MODE
+      value: queue
+      description: Enables queue execution mode backed by Redis.
+    redis-host:
+      type: string
+      env: QUEUE_BULL_REDIS_HOST
+      value: <- connection-hostname("redis")
+      description: Redis host read from the Monk connection.
+    redis-port:
+      type: int
+      env: QUEUE_BULL_REDIS_PORT
+      value: <- connection-port("redis")
+      description: Redis port read from the Monk connection.
+    queue-health-check-active:
+      type: string
+      env: QUEUE_HEALTH_CHECK_ACTIVE
+      value: "true"
+      description: Enables n8n queue health endpoints.
+    http-host-port:
+      type: int
+      value: 8568
+      description: Non-privileged local host port published for standalone verification.
+
+  services:
+    http:
+      container: n8n
+      port: <- $n8n-port
+      protocol: tcp
+      publish: true
+      host-port: <- $http-host-port
+      description: Published local n8n HTTP endpoint for standalone verification.
+
+  connections:
+    postgres:
+      runnable: n8n/stack-local-postgres
+      service: postgres
+      description: Private PostgreSQL service connected to local n8n.
+    redis:
+      runnable: n8n/stack-local-redis
+      service: redis-svc
+      description: Private Redis service connected to local n8n.
+
+  depends:
+    wait-for:
+      runnables:
+        - n8n/stack-local-postgres
+        - n8n/stack-local-redis
+      timeout: 180
+
+stack-local-worker:
+  defines: runnable
+  inherits: n8n/stack-local-main
+
+  metadata:
+    name: n8n Standalone Local Worker
+    description: |
+      Local n8n worker for queue execution mode. It shares the local private
+      PostgreSQL and Redis services and exposes no public endpoint.
+    tags: n8n, workflow-automation, worker, queue, standalone, local
+    website: https://n8n.io/
+    source: https://github.com/n8n-io/n8n
+    publisher: monk.io
+    private: false
+
+  variables:
+    n8n-image-tag:
+      type: string
+      value: latest
+      description: Public ghcr.io/n8n-io/n8n image tag to run.
+    n8n-port:
+      type: int
+      env: N8N_PORT
+      value: 5678
+      description: HTTP port n8n worker health listens on inside the container.
+    user-folder:
+      type: string
+      env: N8N_USER_FOLDER
+      value: /home/node/.n8n
+      description: Directory where n8n worker stores runtime files and local settings.
+    data-volume-name:
+      type: string
+      value: n8n-stack-local-worker-data
+      description: Monk volume subdirectory for local worker n8n data.
+
+  containers:
+    n8n:
+      image: ghcr.io/n8n-io/n8n
+      image-tag: <- $n8n-image-tag
+      restart: unless-stopped
+      bash: n8n worker
+      paths:
+        - <- `${volume-path}/${data-volume-name}:${user-folder}`
+
+  services:
+    http:
+      container: n8n
+      port: <- $n8n-port
+      protocol: tcp
+      publish: false
+      description: Private n8n worker health service for local verification.
+
+stack-local:
+  defines: process-group
+
+  metadata:
+    name: n8n Standalone Local Stack
+    description: |
+      Local verification flavor for the standalone n8n stack. It composes n8n
+      main and worker processes with private PostgreSQL and Redis services, and
+      publishes only n8n HTTP on a non-privileged host port.
+    tags: n8n, workflow-automation, postgresql, redis, queue, standalone, local
+    website: https://n8n.io/
+    source: https://github.com/n8n-io/n8n
+    publisher: monk.io
+    private: false
+
+  runnable-list:
+    - n8n/stack-local-postgres
+    - n8n/stack-local-redis
+    - n8n/stack-local-main
+    - n8n/stack-local-worker

@@ -1,0 +1,162 @@
+namespace: n8n
+
+example-postgres:
+  defines: runnable
+  inherits: postgresql/db
+
+  metadata:
+    name: n8n Component Example PostgreSQL
+    description: |
+      Private PostgreSQL datastore for the n8n component example. This wires
+      the reusable n8n component to a concrete backing service from the Monk
+      catalog without publishing the database.
+    tags: n8n, postgresql, example, component, local
+    website: https://www.postgresql.org/
+    source: https://github.com/postgres/postgres
+    publisher: monk.io
+    private: false
+
+  variables:
+    db_name:
+      type: string
+      env: POSTGRES_DB
+      value: n8n
+      description: PostgreSQL database name for the component example.
+    db_user:
+      type: string
+      env: POSTGRES_USER
+      value: n8n
+      description: PostgreSQL user for the component example.
+    db_pass:
+      type: string
+      env: POSTGRES_PASSWORD
+      value: n8n-example-local
+      description: Sensitive local-only PostgreSQL password for component verification.
+
+  services:
+    postgres:
+      container: postgres
+      port: 5432
+      protocol: tcp
+      publish: false
+      description: Private PostgreSQL TCP endpoint for the n8n component example.
+
+example:
+  defines: runnable
+  inherits: n8n/base
+
+  metadata:
+    name: n8n Component Example
+    description: |
+      Demonstrates the reusable n8n component composed with a concrete
+      PostgreSQL backing service. Publishes n8n on a non-privileged local port
+      only for verification.
+    tags: n8n, workflow-automation, postgresql, example, component, local
+    website: https://n8n.io/
+    source: https://github.com/n8n-io/n8n
+    publisher: monk.io
+    private: false
+
+  variables:
+    n8n-host:
+      type: string
+      env: N8N_HOST
+      value: localhost
+      description: Local hostname used by the component example.
+    webhook-url:
+      type: string
+      env: WEBHOOK_URL
+      value: http://localhost:8567/
+      description: Local webhook base URL for the component example.
+    editor-base-url:
+      type: string
+      env: N8N_EDITOR_BASE_URL
+      value: http://localhost:8567/
+      description: Local editor base URL for the component example.
+    data-volume-name:
+      type: string
+      value: n8n-example-data
+      description: Monk volume subdirectory for component example n8n data.
+    encryption-key:
+      type: string
+      env: N8N_ENCRYPTION_KEY
+      value: n8n-example-local-encryption-key
+      description: Sensitive local-only encryption key for component verification.
+    user-management-jwt-secret:
+      type: string
+      env: N8N_USER_MANAGEMENT_JWT_SECRET
+      value: n8n-example-local-jwt-secret
+      description: Sensitive local-only JWT secret for component verification.
+    db-type:
+      type: string
+      env: DB_TYPE
+      value: postgresdb
+      description: Enables PostgreSQL persistence for the component example.
+    db-postgres-host:
+      type: string
+      env: DB_POSTGRESDB_HOST
+      value: <- connection-hostname("postgres")
+      description: PostgreSQL host read from the Monk connection.
+    db-postgres-port:
+      type: int
+      env: DB_POSTGRESDB_PORT
+      value: <- connection-port("postgres")
+      description: PostgreSQL port read from the Monk connection.
+    db-postgres-database:
+      type: string
+      env: DB_POSTGRESDB_DATABASE
+      value: n8n
+      description: PostgreSQL database name used by the component example.
+    db-postgres-user:
+      type: string
+      env: DB_POSTGRESDB_USER
+      value: n8n
+      description: PostgreSQL user used by the component example.
+    db-postgres-password:
+      type: string
+      env: DB_POSTGRESDB_PASSWORD
+      value: n8n-example-local
+      description: Sensitive local-only PostgreSQL password for component verification.
+    http-host-port:
+      type: int
+      value: 8567
+      description: Non-privileged local host port published for component verification.
+
+  services:
+    http:
+      container: n8n
+      port: <- $n8n-port
+      protocol: tcp
+      publish: true
+      host-port: <- $http-host-port
+      description: Published local n8n HTTP endpoint for component verification.
+
+  connections:
+    postgres:
+      runnable: n8n/example-postgres
+      service: postgres
+      description: Private PostgreSQL service connected to n8n.
+
+  depends:
+    wait-for:
+      runnables:
+        - n8n/example-postgres
+      timeout: 120
+
+component-example:
+  defines: process-group
+
+  metadata:
+    name: n8n Component Example
+    description: |
+      Component example that composes reusable n8n with a private PostgreSQL
+      database and publishes a local HTTP endpoint for verification.
+    tags: n8n, postgresql, component, example, local
+    website: https://n8n.io/
+    source: https://github.com/n8n-io/n8n
+    publisher: monk.io
+    private: false
+
+  runnable-list:
+    - n8n/example-postgres
+    - n8n/example

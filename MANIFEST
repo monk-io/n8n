@@ -1,0 +1,5 @@
+LOAD n8n.yaml
+LOAD n8n-example.yaml
+LOAD n8n-stack.yaml
+
+ENTRY n8n/stack-local

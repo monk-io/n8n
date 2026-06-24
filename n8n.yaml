@@ -1,0 +1,171 @@
+namespace: n8n
+
+base:
+  defines: runnable
+
+  metadata:
+    name: n8n
+    description: |
+      Reusable n8n workflow automation component. The base runs the public
+      ghcr.io/n8n-io/n8n image and leaves database and queue choices to
+      inheriting templates. For production use, wire a persistent database such
+      as postgresql/db or a hosted Neon package, and optionally Redis via
+      redis/redis for queue/worker execution mode.
+    tags: n8n, workflow-automation, low-code, integrations, component
+    website: https://n8n.io/
+    source: https://github.com/n8n-io/n8n
+    publisher: monk.io
+    icon: https://raw.githubusercontent.com/n8n-io/n8n/master/assets/n8n-logo.png
+    private: false
+
+  variables:
+    n8n-image-tag:
+      type: string
+      value: latest
+      description: Public ghcr.io/n8n-io/n8n image tag to run.
+    n8n-port:
+      type: int
+      env: N8N_PORT
+      value: 5678
+      description: HTTP port n8n listens on inside the container.
+    n8n-protocol:
+      type: string
+      env: N8N_PROTOCOL
+      value: http
+      description: Public protocol n8n uses when building webhook and editor URLs.
+    n8n-host:
+      type: string
+      env: N8N_HOST
+      value: localhost
+      description: Public hostname n8n uses when building webhook and editor URLs.
+    webhook-url:
+      type: string
+      env: WEBHOOK_URL
+      value: http://localhost:5678/
+      description: Public base URL used for generated webhook URLs.
+    editor-base-url:
+      type: string
+      env: N8N_EDITOR_BASE_URL
+      value: http://localhost:5678/
+      description: Public editor URL used by n8n.
+    node-env:
+      type: string
+      env: NODE_ENV
+      value: production
+      description: Node.js runtime environment for n8n.
+    generic-timezone:
+      type: string
+      env: GENERIC_TIMEZONE
+      value: UTC
+      description: Default timezone for workflow scheduling.
+    diagnostics-enabled:
+      type: string
+      env: N8N_DIAGNOSTICS_ENABLED
+      value: "false"
+      description: Whether n8n diagnostics telemetry is enabled.
+    secure-cookie:
+      type: string
+      env: N8N_SECURE_COOKIE
+      value: "false"
+      description: Whether n8n marks auth cookies secure. Set true behind HTTPS ingress.
+    user-folder:
+      type: string
+      env: N8N_USER_FOLDER
+      value: /home/node/.n8n
+      description: Directory where n8n stores runtime files and local settings.
+    data-volume-name:
+      type: string
+      value: n8n-data
+      description: Monk volume subdirectory for n8n runtime data.
+    encryption-key:
+      type: string
+      env: N8N_ENCRYPTION_KEY
+      value: ""
+      description: Sensitive n8n credential encryption key. Production inheriting templates set secret("n8n-encryption-key") with a plain secret name.
+    user-management-jwt-secret:
+      type: string
+      env: N8N_USER_MANAGEMENT_JWT_SECRET
+      value: ""
+      description: Sensitive n8n user-management JWT secret. Production inheriting templates set secret("n8n-user-management-jwt-secret") with a plain secret name.
+    db-type:
+      type: string
+      env: DB_TYPE
+      value: sqlite
+      description: n8n database type. Production inheriting templates normally set postgresdb.
+    db-postgres-host:
+      type: string
+      env: DB_POSTGRESDB_HOST
+      value: ""
+      description: PostgreSQL hostname read from Monk connections by inheriting templates.
+    db-postgres-port:
+      type: int
+      env: DB_POSTGRESDB_PORT
+      value: 5432
+      description: PostgreSQL port read from Monk connections by inheriting templates.
+    db-postgres-database:
+      type: string
+      env: DB_POSTGRESDB_DATABASE
+      value: n8n
+      description: PostgreSQL database name used by n8n.
+    db-postgres-user:
+      type: string
+      env: DB_POSTGRESDB_USER
+      value: n8n
+      description: PostgreSQL user used by n8n.
+    db-postgres-password:
+      type: string
+      env: DB_POSTGRESDB_PASSWORD
+      value: ""
+      description: Sensitive PostgreSQL password. Production inheriting templates set secret("n8n-postgres-password") with a plain secret name.
+    db-postgres-schema:
+      type: string
+      env: DB_POSTGRESDB_SCHEMA
+      value: public
+      description: PostgreSQL schema used by n8n.
+    executions-mode:
+      type: string
+      env: EXECUTIONS_MODE
+      value: regular
+      description: n8n execution mode. Use queue when a Redis backend and workers are configured.
+    redis-host:
+      type: string
+      env: QUEUE_BULL_REDIS_HOST
+      value: ""
+      description: Redis hostname read from Monk connections by queue-mode inheriting templates.
+    redis-port:
+      type: int
+      env: QUEUE_BULL_REDIS_PORT
+      value: 6379
+      description: Redis port read from Monk connections by queue-mode inheriting templates.
+    redis-password:
+      type: string
+      env: QUEUE_BULL_REDIS_PASSWORD
+      value: ""
+      description: Sensitive Redis password. Production inheriting templates set secret("n8n-redis-password") with a plain secret name when Redis auth is enabled.
+    queue-health-check-active:
+      type: string
+      env: QUEUE_HEALTH_CHECK_ACTIVE
+      value: "false"
+      description: Enables n8n worker queue health endpoints when queue mode is used.
+
+  containers:
+    n8n:
+      image: ghcr.io/n8n-io/n8n
+      image-tag: <- $n8n-image-tag
+      restart: unless-stopped
+      paths:
+        - <- `${volume-path}/${data-volume-name}:${user-folder}`
+
+  services:
+    http:
+      container: n8n
+      port: <- $n8n-port
+      protocol: tcp
+      publish: false
+      description: n8n HTTP service.
+
+  checks:
+    readiness:
+      code: <- `http-get("http://localhost:${n8n-port}/healthz") nil? not`
+      period: 10
+      attempts: 18
