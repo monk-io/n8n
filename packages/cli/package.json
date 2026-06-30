@@ -100,7 +100,7 @@
     "jest-mock": "^29.6.2",
     "jest-mock-extended": "^3.0.4",
     "minifaker": "1.34.1",
-    "mjml": "^4.15.3",
+    "mjml": "^5.0.0",
     "n8n-containers": "workspace:*",
     "nock": "catalog:",
     "openai": "catalog:",
