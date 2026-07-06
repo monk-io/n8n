@@ -147,6 +147,9 @@ base:
       env: QUEUE_HEALTH_CHECK_ACTIVE
       value: "false"
       description: Enables n8n worker queue health endpoints when queue mode is used.
+    self-path:
+      type: string
+      value: <- self-path
 
   containers:
     n8n:
@@ -166,6 +169,6 @@ base:
 
   checks:
     readiness:
-      code: <- `http-get("http://localhost:${n8n-port}/healthz") nil? not`
+      code: http-get-service($self-path, "http", "/healthz") get-member("status") 200 equal?
       period: 10
       attempts: 18
