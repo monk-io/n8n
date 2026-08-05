@@ -100,7 +100,7 @@ catalog:
   chokidar: 4.0.3
   cron: 4.4.0
   csv-parse: 6.2.1
-  electron: ^41.7.2
+  electron: ^41.10.3
   esbuild: ^0.28.1
   eslint: 9.29.0
   eslint-plugin-oxlint: ^1.61.0
